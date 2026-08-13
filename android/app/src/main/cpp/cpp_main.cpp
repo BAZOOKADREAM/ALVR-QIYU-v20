@@ -88,6 +88,13 @@ void log(AlvrLogLevel level, const char *format, ...) {
 
 #define error(...) log(ALVR_LOG_LEVEL_ERROR, __VA_ARGS__)
 #define info(...) log(ALVR_LOG_LEVEL_INFO, __VA_ARGS__)
+// Diagnostic lines are printed both to logcat (unfiltered, tag "ALVR-QIYU") and through the ALVR
+// logging pipeline (which forwards them to the server when enabled).
+#define diag(...)                                                        \
+    do {                                                                 \
+        __android_log_print(ANDROID_LOG_INFO, "ALVR-QIYU", __VA_ARGS__); \
+        info(__VA_ARGS__);                                               \
+    } while (0)
 
 namespace QY_GL_EXT
 {
@@ -743,7 +750,7 @@ void eventsThread() {
                                nullptr);
 
             if (trackingLogCounter++ % 600 == 0) {
-                info("[TRACKING] offset_ns=%llu poll_ns=%llu head=(%.2f,%.2f,%.2f) rot=(%.2f,%.2f,%.2f,%.2f)",
+                diag("[TRACKING] offset_ns=%llu poll_ns=%llu head=(%.2f,%.2f,%.2f) rot=(%.2f,%.2f,%.2f,%.2f)",
                      (unsigned long long) predictionOffsetNs,
                      (unsigned long long) pollTimestampNs,
                      headMotion.pose.position[0], headMotion.pose.position[1],
@@ -799,7 +806,7 @@ void eventsThread() {
             } else if (event.tag == ALVR_EVENT_STREAMING_STOPPED) {
                 java.Env->CallVoidMethod(java.ActivityObject, onStreamStopMethod);
             } else if (event.tag == ALVR_EVENT_DECODER_CONFIG) {
-                info("[DECODER] config event, codec=%d", (int) event.DECODER_CONFIG.codec);
+                diag("[DECODER] config event, codec=%d", (int) event.DECODER_CONFIG.codec);
                 alvr_create_decoder_auto(event.DECODER_CONFIG.codec);
             } else if (event.tag == ALVR_EVENT_HUD_MESSAGE_UPDATED) {
                 auto messageLength = alvr_hud_message(nullptr);
@@ -940,7 +947,7 @@ extern "C" JNIEXPORT void JNICALL
 Java_alvr_client_VRActivity_onStreamStartNative(JNIEnv *_env, jobject _context) {
     auto java = getOvrJava();
 
-    info("[STREAM] view=%ux%u refresh=%.1f foveated=%d hdr=%d", CTX.streamViewWidth,
+    diag("[STREAM] view=%ux%u refresh=%.1f foveated=%d hdr=%d", CTX.streamViewWidth,
          CTX.streamViewHeight, CTX.refreshRate, CTX.enableFoveatedEncoding ? 1 : 0,
          CTX.enableHdr ? 1 : 0);
     if (CTX.streamViewWidth > 2048) {
@@ -1090,7 +1097,7 @@ Java_alvr_client_VRActivity_renderNative(JNIEnv *_env, jobject _context) {
 
         static int frameLogCounter = 0;
         if (frameLogCounter++ < 10 || frameLogCounter % 300 == 0) {
-            info("[FRAME] ts_ns=%llu match=%d fov=(%.2f,%.2f,%.2f,%.2f) queue=%d",
+            diag("[FRAME] ts_ns=%llu match=%d fov=(%.2f,%.2f,%.2f,%.2f) queue=%d",
                  (unsigned long long) timestampNs, trackingFound ? 1 : 0,
                  viewParams[0].fov.left, viewParams[0].fov.right,
                  viewParams[0].fov.up, viewParams[0].fov.down,

@@ -32,6 +32,8 @@ static HUD_MESSAGE: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new("".into()));
 static SETTINGS: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new("".into()));
 static SERVER_VERSION: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new("".into()));
 static DECODER_CONFIG_BUFFER: Lazy<Mutex<Vec<u8>>> = Lazy::new(|| Mutex::new("".into()));
+static LAST_DECODER_CONFIG: Lazy<Mutex<Option<(u8, Vec<u8>)>>> =
+    Lazy::new(|| Mutex::new(None));
 
 // Core interface:
 
@@ -1039,6 +1041,18 @@ pub extern "C" fn alvr_create_decoder_auto(codec: AlvrCodec) {
 }
 
 fn create_decoder_from_config(config: VideoDecoderConfig) {
+    // Only (re)create the decoder when the configuration actually changed. Creating a decoder
+    // sends an IDR request to the server, which responds with another DecoderConfig packet; doing
+    // that unconditionally results in an infinite DecoderConfig/RequestIdr ping-pong.
+    let key = (config.codec as u8, config.config_buffer.clone());
+    {
+        let mut last_config = LAST_DECODER_CONFIG.lock();
+        if *last_config == Some(key.clone()) {
+            return;
+        }
+        *last_config = Some(key);
+    }
+
     let (mut sink, source) =
         video_decoder::create_decoder(config, |maybe_timestamp: Result<Duration>| {
             if let Some(context) = &*CLIENT_CORE_CONTEXT.lock() {
@@ -1061,6 +1075,7 @@ fn create_decoder_from_config(config: VideoDecoderConfig) {
 #[no_mangle]
 pub extern "C" fn alvr_destroy_decoder() {
     *DECODER_SOURCE.lock() = None;
+    *LAST_DECODER_CONFIG.lock() = None;
 }
 
 // Returns true if the timestamp and buffer has been written to
