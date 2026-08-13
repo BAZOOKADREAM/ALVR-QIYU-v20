@@ -54,25 +54,40 @@ impl VideoDecoderSink {
             return Ok(false);
         };
 
-        match decoder.dequeue_input_buffer(Duration::ZERO) {
-            Ok(DequeuedInputBufferResult::Buffer(mut buffer)) => {
-                unsafe {
-                    ptr::copy_nonoverlapping(
-                        data.as_ptr(),
-                        buffer.buffer_mut().as_mut_ptr().cast(),
-                        data.len(),
-                    )
-                };
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<bool> {
+            match decoder.dequeue_input_buffer(Duration::ZERO) {
+                Ok(DequeuedInputBufferResult::Buffer(mut buffer)) => {
+                    unsafe {
+                        ptr::copy_nonoverlapping(
+                            data.as_ptr(),
+                            buffer.buffer_mut().as_mut_ptr().cast(),
+                            data.len(),
+                        )
+                    };
 
-                // NB: the function expects the timestamp in micros, but nanos is used to have
-                // complete precision, so when converted back to Duration it can compare correctly
-                // to other Durations
-                decoder.queue_input_buffer(buffer, 0, data.len(), timestamp.as_nanos() as _, 0)?;
+                    // NB: the function expects the timestamp in micros, but nanos is used to have
+                    // complete precision, so when converted back to Duration it can compare
+                    // correctly to other Durations
+                    decoder.queue_input_buffer(buffer, 0, data.len(), timestamp.as_nanos() as _, 0)?;
 
-                Ok(true)
+                    Ok(true)
+                }
+                Ok(DequeuedInputBufferResult::TryAgainLater) => Ok(false),
+                Err(e) => bail!("{e}"),
             }
-            Ok(DequeuedInputBufferResult::TryAgainLater) => Ok(false),
-            Err(e) => bail!("{e}"),
+        }));
+
+        match result {
+            Ok(result) => result,
+            Err(_) => {
+                // Some MediaCodec implementations (e.g. QIYU) return NULL from
+                // AMediaCodec_getInputBuffer once the codec has entered an error state. The ndk
+                // crate panics in that case; catch it here so a broken codec cannot crash the
+                // whole connection loop. The decoder lifecycle thread reports the actual error.
+                warn!("Input buffer vanished (decoder likely in error state), dropping NAL");
+
+                Ok(false)
+            }
         }
     }
 }

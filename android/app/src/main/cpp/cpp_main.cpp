@@ -943,6 +943,11 @@ Java_alvr_client_VRActivity_onStreamStartNative(JNIEnv *_env, jobject _context) 
     info("[STREAM] view=%ux%u refresh=%.1f foveated=%d hdr=%d", CTX.streamViewWidth,
          CTX.streamViewHeight, CTX.refreshRate, CTX.enableFoveatedEncoding ? 1 : 0,
          CTX.enableHdr ? 1 : 0);
+    if (CTX.streamViewWidth > 2048) {
+        error("[STREAM] per-eye width %u means a %u-wide video; QIYU decoders are limited to "
+              "4096px. Lower the server transcoding resolution to 2048 or use scale mode.",
+              CTX.streamViewWidth, CTX.streamViewWidth * 2);
+    }
 
     std::vector<uint32_t> textureHandlesBuffer[2];
     for (int eye = 0; eye < 2; eye++) {

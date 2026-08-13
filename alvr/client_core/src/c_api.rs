@@ -793,6 +793,15 @@ pub unsafe extern "C" fn alvr_start_stream_opengl(config: AlvrStreamConfig) {
         swapchain_textures[0].len(),
         config.enable_foveation
     );
+    if view_resolution.x > 2048 {
+        warn!(
+            "[STREAM-RUST] per-eye width {} results in a {}-wide video. QIYU hardware decoders \
+             are typically limited to 4096px: lower the server transcoding resolution to 2048 or \
+             less (or enable scale mode)",
+            view_resolution.x,
+            view_resolution.x * 2
+        );
+    }
 
     // The C++ client only forwards the negotiated boolean flag. Fill the foveated encoding
     // parameters from the session settings negotiated with the server, mirroring the stock
