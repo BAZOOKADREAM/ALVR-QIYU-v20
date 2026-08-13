@@ -723,11 +723,15 @@ pub struct AlvrStreamConfig {
 
 #[no_mangle]
 pub extern "C" fn alvr_initialize_opengl() {
+    info!("[GL] initialize");
+
     opengl::initialize();
 }
 
 #[no_mangle]
 pub extern "C" fn alvr_destroy_opengl() {
+    info!("[GL] destroy");
+
     opengl::destroy();
 }
 
@@ -759,6 +763,8 @@ pub unsafe extern "C" fn alvr_resume_opengl(
     swapchain_textures: *mut *const u32,
     swapchain_length: u32,
 ) {
+    info!("[GL] resume {preferred_view_width}x{preferred_view_height}");
+
     opengl::resume(
         UVec2::new(preferred_view_width, preferred_view_height),
         convert_swapchain_array(swapchain_textures, swapchain_length),
@@ -780,6 +786,13 @@ pub unsafe extern "C" fn alvr_start_stream_opengl(config: AlvrStreamConfig) {
     let view_resolution = UVec2::new(config.view_resolution_width, config.view_resolution_height);
     let swapchain_textures =
         convert_swapchain_array(config.swapchain_textures, config.swapchain_length);
+    info!(
+        "[STREAM-RUST] view={}x{} swapchain_len={} enable_foveation={}",
+        view_resolution.x,
+        view_resolution.y,
+        swapchain_textures[0].len(),
+        config.enable_foveation
+    );
 
     // The C++ client only forwards the negotiated boolean flag. Fill the foveated encoding
     // parameters from the session settings negotiated with the server, mirroring the stock
@@ -828,6 +841,18 @@ pub unsafe extern "C" fn alvr_start_stream_opengl(config: AlvrStreamConfig) {
             settings_config.edge_ratio_y
         },
     });
+
+    if let Some(foveation) = &foveated_encoding {
+        info!(
+            "[STREAM-RUST] foveation center=({},{}) shift=({},{}) edge=({},{})",
+            foveation.center_size_x,
+            foveation.center_size_y,
+            foveation.center_shift_x,
+            foveation.center_shift_y,
+            foveation.edge_ratio_x,
+            foveation.edge_ratio_y
+        );
+    }
 
     opengl::start_stream(
         view_resolution,

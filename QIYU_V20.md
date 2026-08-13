@@ -77,13 +77,16 @@ C++ 渲染器搬回 client_core。本工程采用同样的做法。
 - 解码器生命周期：`DecoderConfig` 事件 → `alvr_create_decoder_auto`；`StreamingStopped` →
   `alvr_destroy_decoder`；
 - 流渲染使用 `alvr_report_compositor_start` 返回的 FOV；重投影旋转为恒等（无客户端重投影）；
-- `AlvrClientCapabilities.foveated_encoding = false`（渲染器仍内置 ffr pass，但暂不启用）：
-  与已验证的 v19 QIYU 行为保持一致，规避 foveated 解码/重建在 Qiyu 上可能导致的画面异常；
+- `AlvrClientCapabilities.foveated_encoding = true`：必须与服务端默认开启的 foveated encoding
+  协商一致，否则每次驱动重启后的首连都会因 OpenVR 配置不一致再次触发 SteamVR 重启循环；
+  流配置的 `enable_foveation` 跟随协商结果，C++ 渲染器内置 ffr 解压缩 pass；
 - 跟踪按 v20 语义发送 `poll_timestamp`（实际采样时刻），头部位姿仍使用 Qiyu SDK 预测值；
 - ATW 位姿查找增加兜底：无精确匹配时使用最新的预测位姿，避免 `headPoseState` 退化为零位姿
   导致画面钉死；
 - `CTX.running` / `CTX.streaming` 改为 `std::atomic<bool>`，消除跨线程数据竞争；
 - 增加 `[STREAM]` / `[DECODER]` / `[FRAME]` / `[TRACKING]` 低频 logcat 日志便于排障。
+- Rust 桥接层增加 `[GL]` / `[STREAM-RUST]` 日志（含分辨率与 foveation 参数），这些日志会经
+  控制通道上报到服务端 dashboard（需在服务端开启 "Client log report level"）。
 - 保留 v19 已验证的 QIYU 逻辑：Jerk 估计 + 手柄轨迹预测、坐标翻转、振动手感合并、
   `qiyu_SetFoveation` 硬件注视点、三缓冲、`g_fTrackingOffset` 等；
 - 渲染目标级 QCOM foveation 保持关闭（沿用 v19 最后一个提交 "Disable foveated rendering"）。
