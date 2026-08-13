@@ -20,7 +20,8 @@ use alvr_graphics::{
 };
 use alvr_packets::{ButtonEntry, ButtonValue, FaceData};
 use alvr_session::{
-    CodecType, FoveatedEncodingConfig, MediacodecPropType, MediacodecProperty, UpscalingConfig,
+    CodecType, FoveatedEncodingConfig, MediacodecPropType, MediacodecProperty, Settings,
+    UpscalingConfig,
 };
 use std::{
     cell::RefCell,
@@ -328,6 +329,17 @@ pub extern "C" fn alvr_resume() {
 pub extern "C" fn alvr_pause() {
     if let Some(context) = &*CLIENT_CORE_CONTEXT.lock() {
         context.pause();
+    }
+}
+
+/// Returns the estimated total pipeline latency in nanoseconds. The value is zero if the client
+/// core context is not initialized yet.
+#[no_mangle]
+pub extern "C" fn alvr_get_prediction_offset_ns() -> u64 {
+    if let Some(context) = &*CLIENT_CORE_CONTEXT.lock() {
+        context.get_total_prediction_offset().as_nanos() as u64
+    } else {
+        0
     }
 }
 
@@ -989,6 +1001,46 @@ pub extern "C" fn alvr_create_decoder(config: AlvrDecoderConfig) {
         },
     };
 
+    create_decoder_from_config(config);
+}
+
+/// Creates the decoder using the configuration that was negotiated with the server (stored in the
+/// `SETTINGS` buffer) and the codec config NAL that was received with the `DecoderConfig` event.
+///
+/// This is a convenience helper for non-OpenXR native clients: they don't have to parse the JSON
+/// settings payload themselves. Call it from the `DecoderConfig` event handler, passing the codec
+/// carried by the event.
+#[no_mangle]
+pub extern "C" fn alvr_create_decoder_auto(codec: AlvrCodec) {
+    let settings = serde_json::from_str::<Settings>(&SETTINGS.lock());
+    let (force_software_decoder, max_buffering_frames, buffering_history_weight, options) =
+        match settings {
+            Ok(settings) => (
+                settings.video.force_software_decoder,
+                settings.video.max_buffering_frames,
+                settings.video.buffering_history_weight,
+                settings.video.mediacodec_extra_options,
+            ),
+            Err(_) => (false, 2.0, 0.90, vec![]),
+        };
+
+    let config = VideoDecoderConfig {
+        codec: match codec {
+            AlvrCodec::H264 => CodecType::H264,
+            AlvrCodec::Hevc => CodecType::Hevc,
+            AlvrCodec::AV1 => CodecType::AV1,
+        },
+        force_software_decoder,
+        max_buffering_frames,
+        buffering_history_weight,
+        options,
+        config_buffer: DECODER_CONFIG_BUFFER.lock().clone(),
+    };
+
+    create_decoder_from_config(config);
+}
+
+fn create_decoder_from_config(config: VideoDecoderConfig) {
     let (mut sink, source) =
         video_decoder::create_decoder(config, |maybe_timestamp: Result<Duration>| {
             if let Some(context) = &*CLIENT_CORE_CONTEXT.lock() {
