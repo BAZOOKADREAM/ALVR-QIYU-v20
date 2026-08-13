@@ -12,6 +12,7 @@
 #include <android/log.h>
 #include <android/native_window_jni.h>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -184,8 +185,8 @@ public:
     ANativeWindow *window = nullptr;
     ovrMobile *ovrContext{};
 
-    bool running = false;
-    bool streaming = false;
+    std::atomic<bool> running{false};
+    std::atomic<bool> streaming{false};
     std::thread eventsThread;
 
     uint32_t recommendedViewWidth = 1;
@@ -629,13 +630,16 @@ void eventsThread() {
     auto deadline = std::chrono::steady_clock::now();
     auto motionVec = std::vector<AlvrDeviceMotion>();
 
-    while (CTX.running) {
-        if (CTX.streaming) {
+    int trackingLogCounter = 0;
+
+    while (CTX.running.load()) {
+        if (CTX.streaming.load()) {
             motionVec.clear();
 
             AlvrDeviceMotion headMotion = {};
             uint64_t predictionOffsetNs = alvr_get_prediction_offset_ns();
-            uint64_t targetTimestampNs = getTimestampNs() + predictionOffsetNs;
+            uint64_t pollTimestampNs = getTimestampNs();
+            uint64_t targetTimestampNs = pollTimestampNs + predictionOffsetNs;
             auto headTracking =
                     qiyu_PredictHeadPose((float) predictionOffsetNs / 1e6);
             headMotion.device_id = HEAD_ID;
@@ -735,8 +739,18 @@ void eventsThread() {
             }
 
             // QIYU does not provide a hand skeleton or eye gaze APIs, pass null.
-            alvr_send_tracking(targetTimestampNs, motionVec.data(), motionVec.size(), nullptr,
+            alvr_send_tracking(pollTimestampNs, motionVec.data(), motionVec.size(), nullptr,
                                nullptr);
+
+            if (trackingLogCounter++ % 600 == 0) {
+                info("[TRACKING] offset_ns=%llu poll_ns=%llu head=(%.2f,%.2f,%.2f) rot=(%.2f,%.2f,%.2f,%.2f)",
+                     (unsigned long long) predictionOffsetNs,
+                     (unsigned long long) pollTimestampNs,
+                     headMotion.pose.position[0], headMotion.pose.position[1],
+                     headMotion.pose.position[2], headMotion.pose.orientation.x,
+                     headMotion.pose.orientation.y, headMotion.pose.orientation.z,
+                     headMotion.pose.orientation.w);
+            }
         }
 
         qiyu_DeviceInfo di = qiyu_GetDeviceInfo();
@@ -785,6 +799,7 @@ void eventsThread() {
             } else if (event.tag == ALVR_EVENT_STREAMING_STOPPED) {
                 java.Env->CallVoidMethod(java.ActivityObject, onStreamStopMethod);
             } else if (event.tag == ALVR_EVENT_DECODER_CONFIG) {
+                info("[DECODER] config event, codec=%d", (int) event.DECODER_CONFIG.codec);
                 alvr_create_decoder_auto(event.DECODER_CONFIG.codec);
             } else if (event.tag == ALVR_EVENT_HUD_MESSAGE_UPDATED) {
                 auto messageLength = alvr_hud_message(nullptr);
@@ -855,7 +870,7 @@ Java_alvr_client_VRActivity_initializeNative(JNIEnv *env, jobject context) {
     capabilities.default_view_height = CTX.recommendedViewHeight;
     capabilities.refresh_rates = refreshRatesBuffer.data();
     capabilities.refresh_rates_count = refreshRatesCount;
-    capabilities.foveated_encoding = true;
+    capabilities.foveated_encoding = false;
     capabilities.encoder_high_profile = true;
     capabilities.encoder_10_bits = true;
     capabilities.encoder_av1 = false;
@@ -913,7 +928,7 @@ extern "C" JNIEXPORT void JNICALL Java_alvr_client_VRActivity_onResumeNative(
     const uint32_t *textureHandles[2] = {&textureHandlesBuffer[0][0], &textureHandlesBuffer[1][0]};
     qiyu_PostSetEyeBufferSize(CTX.recommendedViewWidth, CTX.recommendedViewHeight);
 
-    CTX.running = true;
+    CTX.running.store(true);
     CTX.eventsThread = std::thread(eventsThread);
 
     alvr_resume_opengl(CTX.recommendedViewWidth, CTX.recommendedViewHeight, textureHandles,
@@ -924,6 +939,10 @@ extern "C" JNIEXPORT void JNICALL Java_alvr_client_VRActivity_onResumeNative(
 extern "C" JNIEXPORT void JNICALL
 Java_alvr_client_VRActivity_onStreamStartNative(JNIEnv *_env, jobject _context) {
     auto java = getOvrJava();
+
+    info("[STREAM] view=%ux%u refresh=%.1f foveated=%d hdr=%d", CTX.streamViewWidth,
+         CTX.streamViewHeight, CTX.refreshRate, CTX.enableFoveatedEncoding ? 1 : 0,
+         CTX.enableHdr ? 1 : 0);
 
     std::vector<uint32_t> textureHandlesBuffer[2];
     for (int eye = 0; eye < 2; eye++) {
@@ -965,17 +984,17 @@ Java_alvr_client_VRActivity_onStreamStartNative(JNIEnv *_env, jobject _context) 
     streamConfig.view_resolution_height = CTX.streamViewHeight;
     streamConfig.swapchain_textures = textureHandles;
     streamConfig.swapchain_length = textureHandlesBuffer[0].size();
-    streamConfig.enable_foveation = CTX.enableFoveatedEncoding;
+    streamConfig.enable_foveation = false;
     streamConfig.enable_upscaling = false;
 
     alvr_start_stream_opengl(streamConfig);
 
-    CTX.streaming = true;
+    CTX.streaming.store(true);
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_alvr_client_VRActivity_onStreamStopNative(JNIEnv *_env, jobject _context) {
-    CTX.streaming = false;
+    CTX.streaming.store(false);
 
     alvr_destroy_decoder();
 
@@ -993,8 +1012,8 @@ Java_alvr_client_VRActivity_onPauseNative(JNIEnv *_env, jobject _context) {
     alvr_pause();
     alvr_pause_opengl();
 
-    if (CTX.running) {
-        CTX.running = false;
+    if (CTX.running.load()) {
+        CTX.running.store(false);
         CTX.eventsThread.join();
     }
     for (int eye = 0; eye < 2; eye++) {
@@ -1024,7 +1043,7 @@ Java_alvr_client_VRActivity_renderNative(JNIEnv *_env, jobject _context) {
     qiyu_Update(tickSecond);
     CTX.lastFrameTimeUs = currentUs;
 
-    if (CTX.streaming) {
+    if (CTX.streaming.load()) {
         void *streamHardwareBuffer = nullptr;
         uint64_t timestampNs = 0;
         if (!alvr_get_frame(&timestampNs, &streamHardwareBuffer)) {
@@ -1044,16 +1063,33 @@ Java_alvr_client_VRActivity_renderNative(JNIEnv *_env, jobject _context) {
 
         updateHapticsState();
 
+        bool trackingFound = false;
         {
             std::lock_guard<std::mutex> lock(CTX.trackingFrameMutex);
 
-            // Take the frame with equal timestamp, or the next closest one.
-            for (auto &pair: CTX.trackingFrameMap) {
-                if (pair.first <= timestampNs) {
-                    tracking = pair.second;
-                    break;
+            if (!CTX.trackingFrameMap.empty()) {
+                // Fallback: use the latest predicted pose so that ATW always has a valid pose,
+                // even if no history entry matches the frame timestamp.
+                tracking = CTX.trackingFrameMap.front().second;
+
+                // Prefer the newest entry whose timestamp is not after the frame timestamp.
+                for (auto &pair: CTX.trackingFrameMap) {
+                    if (pair.first <= timestampNs) {
+                        tracking = pair.second;
+                        trackingFound = true;
+                        break;
+                    }
                 }
             }
+        }
+
+        static int frameLogCounter = 0;
+        if (frameLogCounter++ < 10 || frameLogCounter % 300 == 0) {
+            info("[FRAME] ts_ns=%llu match=%d fov=(%.2f,%.2f,%.2f,%.2f) queue=%d",
+                 (unsigned long long) timestampNs, trackingFound ? 1 : 0,
+                 viewParams[0].fov.left, viewParams[0].fov.right,
+                 viewParams[0].fov.up, viewParams[0].fov.down,
+                 (int) CTX.trackingFrameMap.size());
         }
 
         AlvrStreamViewParams streamViewParams[2] = {};
