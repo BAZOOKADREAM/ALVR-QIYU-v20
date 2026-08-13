@@ -1,6 +1,7 @@
 #![expect(dead_code)]
 
 use crate::{
+    opengl::{self, RenderViewInput},
     storage,
     video_decoder::{self, VideoDecoderConfig, VideoDecoderSource},
     ClientCapabilities, ClientCoreContext, ClientCoreEvent,
@@ -14,20 +15,14 @@ use alvr_common::{
     parking_lot::Mutex,
     warn, DeviceMotion, Fov, OptLazy, Pose, ViewParams,
 };
-use alvr_graphics::{
-    compute_target_view_resolution, GraphicsContext, LobbyRenderer, LobbyViewParams,
-    StreamRenderer, StreamViewParams,
-};
 use alvr_packets::{ButtonEntry, ButtonValue, FaceData};
 use alvr_session::{
-    CodecType, FoveatedEncodingConfig, MediacodecPropType, MediacodecProperty, Settings,
-    UpscalingConfig,
+    settings_schema::Switch, CodecType, FoveatedEncodingConfig, MediacodecPropType,
+    MediacodecProperty, Settings,
 };
 use std::{
-    cell::RefCell,
     ffi::{c_char, c_void, CStr, CString},
     ptr,
-    rc::Rc,
     slice,
     time::{Duration, Instant},
 };
@@ -692,12 +687,6 @@ pub extern "C" fn alvr_report_submit(target_timestamp_ns: u64, vsync_queue_ns: u
 
 // OpenGL-related interface
 
-thread_local! {
-    static GRAPHICS_CONTEXT: RefCell<Option<Rc<GraphicsContext>>> = const { RefCell::new(None) };
-    static LOBBY_RENDERER: RefCell<Option<LobbyRenderer>> = const { RefCell::new(None) };
-    static STREAM_RENDERER: RefCell<Option<StreamRenderer>> = const { RefCell::new(None) };
-}
-
 #[repr(C)]
 pub struct AlvrLobbyViewParams {
     swapchain_index: u32,
@@ -734,12 +723,12 @@ pub struct AlvrStreamConfig {
 
 #[no_mangle]
 pub extern "C" fn alvr_initialize_opengl() {
-    GRAPHICS_CONTEXT.set(Some(Rc::new(GraphicsContext::new_gl())));
+    opengl::initialize();
 }
 
 #[no_mangle]
 pub extern "C" fn alvr_destroy_opengl() {
-    GRAPHICS_CONTEXT.set(None);
+    opengl::destroy();
 }
 
 unsafe fn convert_swapchain_array(
@@ -770,27 +759,20 @@ pub unsafe extern "C" fn alvr_resume_opengl(
     swapchain_textures: *mut *const u32,
     swapchain_length: u32,
 ) {
-    LOBBY_RENDERER.set(Some(LobbyRenderer::new(
-        GRAPHICS_CONTEXT.with_borrow(|c| c.as_ref().unwrap().clone()),
+    opengl::resume(
         UVec2::new(preferred_view_width, preferred_view_height),
         convert_swapchain_array(swapchain_textures, swapchain_length),
-        "",
-    )));
+    );
 }
 
 #[no_mangle]
 pub extern "C" fn alvr_pause_opengl() {
-    STREAM_RENDERER.set(None);
-    LOBBY_RENDERER.set(None)
+    opengl::pause();
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn alvr_update_hud_message_opengl(message: *const c_char) {
-    LOBBY_RENDERER.with_borrow(|renderer| {
-        if let Some(renderer) = renderer {
-            renderer.update_hud_message(CStr::from_ptr(message).to_str().unwrap());
-        }
-    });
+    opengl::update_hud_message(CStr::from_ptr(message).to_str().unwrap());
 }
 
 #[no_mangle]
@@ -798,68 +780,83 @@ pub unsafe extern "C" fn alvr_start_stream_opengl(config: AlvrStreamConfig) {
     let view_resolution = UVec2::new(config.view_resolution_width, config.view_resolution_height);
     let swapchain_textures =
         convert_swapchain_array(config.swapchain_textures, config.swapchain_length);
-    let foveated_encoding = config.enable_foveation.then_some(FoveatedEncodingConfig {
+
+    // The C++ client only forwards the negotiated boolean flag. Fill the foveated encoding
+    // parameters from the session settings negotiated with the server, mirroring the stock
+    // OpenXR client.
+    let foveated_encoding = if config.enable_foveation {
+        let settings = serde_json::from_str::<Settings>(&SETTINGS.lock()).ok();
+
+        settings.and_then(|settings| match settings.video.foveated_encoding {
+            Switch::Enabled(config) => Some(config),
+            Switch::Disabled => None,
+        })
+    } else {
+        None
+    };
+
+    let foveated_encoding = foveated_encoding.map(|settings_config| FoveatedEncodingConfig {
         force_enable: true,
-        center_size_x: config.foveation_center_size_x,
-        center_size_y: config.foveation_center_size_y,
-        center_shift_x: config.foveation_center_shift_x,
-        center_shift_y: config.foveation_center_shift_y,
-        edge_ratio_x: config.foveation_edge_ratio_x,
-        edge_ratio_y: config.foveation_edge_ratio_y,
-    });
-    let upscaling = config.enable_upscaling.then_some(UpscalingConfig {
-        edge_direction: config.upscaling_edge_direction,
-        edge_sharpness: config.upscaling_edge_sharpness,
-        edge_threshold: config.upscaling_edge_threshold,
-        upscale_factor: config.upscale_factor,
+        center_size_x: if config.foveation_center_size_x > 0.0 {
+            config.foveation_center_size_x
+        } else {
+            settings_config.center_size_x
+        },
+        center_size_y: if config.foveation_center_size_y > 0.0 {
+            config.foveation_center_size_y
+        } else {
+            settings_config.center_size_y
+        },
+        center_shift_x: if config.foveation_center_shift_x != 0.0 {
+            config.foveation_center_shift_x
+        } else {
+            settings_config.center_shift_x
+        },
+        center_shift_y: if config.foveation_center_shift_y != 0.0 {
+            config.foveation_center_shift_y
+        } else {
+            settings_config.center_shift_y
+        },
+        edge_ratio_x: if config.foveation_edge_ratio_x > 0.0 {
+            config.foveation_edge_ratio_x
+        } else {
+            settings_config.edge_ratio_x
+        },
+        edge_ratio_y: if config.foveation_edge_ratio_y > 0.0 {
+            config.foveation_edge_ratio_y
+        } else {
+            settings_config.edge_ratio_y
+        },
     });
 
-    STREAM_RENDERER.set(Some(StreamRenderer::new(
-        GRAPHICS_CONTEXT.with_borrow(|c| c.as_ref().unwrap().clone()),
+    opengl::start_stream(
         view_resolution,
-        compute_target_view_resolution(view_resolution, &upscaling),
         swapchain_textures,
-        alvr_graphics::SDR_FORMAT_GL,
         foveated_encoding,
-        true,
-        false, // TODO: limited range fix config
-        1.0,   // TODO: encoding gamma config
-        upscaling,
-    )));
+        false,
+    );
 }
 
 // todo: support hands
 #[no_mangle]
 pub unsafe extern "C" fn alvr_render_lobby_opengl(
     view_inputs: *const AlvrLobbyViewParams,
-    render_background: bool,
+    _render_background: bool,
 ) {
     let view_inputs = [
-        LobbyViewParams {
+        RenderViewInput {
             swapchain_index: (*view_inputs).swapchain_index,
             pose: from_capi_pose((*view_inputs).pose),
             fov: from_capi_fov((*view_inputs).fov),
         },
-        LobbyViewParams {
+        RenderViewInput {
             swapchain_index: (*view_inputs.offset(1)).swapchain_index,
             pose: from_capi_pose((*view_inputs.offset(1)).pose),
             fov: from_capi_fov((*view_inputs.offset(1)).fov),
         },
     ];
 
-    LOBBY_RENDERER.with_borrow(|renderer| {
-        if let Some(renderer) = renderer {
-            renderer.render(
-                view_inputs,
-                [(None, None), (None, None)],
-                None,
-                None,
-                None,
-                render_background,
-                false,
-            );
-        }
-    });
+    opengl::render_lobby(view_inputs);
 }
 
 /// view_params: array of 2
@@ -868,46 +865,13 @@ pub unsafe extern "C" fn alvr_render_stream_opengl(
     hardware_buffer: *mut c_void,
     view_params: *const AlvrStreamViewParams,
 ) {
-    STREAM_RENDERER.with_borrow(|renderer| {
-        if let Some(renderer) = renderer {
-            let left_params = &*view_params;
-            let right_params = &*view_params.offset(1);
-            renderer.render(
-                hardware_buffer,
-                [
-                    StreamViewParams {
-                        swapchain_index: left_params.swapchain_index,
-                        input_view_params: ViewParams {
-                            pose: Pose::default(),
-                            fov: from_capi_fov(left_params.fov),
-                        },
-                        output_view_params: ViewParams {
-                            pose: Pose {
-                                orientation: from_capi_quat(left_params.reprojection_rotation),
-                                position: Vec3::ZERO,
-                            },
-                            fov: from_capi_fov(left_params.fov),
-                        },
-                    },
-                    StreamViewParams {
-                        swapchain_index: right_params.swapchain_index,
-                        input_view_params: ViewParams {
-                            pose: Pose::default(),
-                            fov: from_capi_fov(right_params.fov),
-                        },
-                        output_view_params: ViewParams {
-                            pose: Pose {
-                                orientation: from_capi_quat(right_params.reprojection_rotation),
-                                position: Vec3::ZERO,
-                            },
-                            fov: from_capi_fov(right_params.fov),
-                        },
-                    },
-                ],
-                None,
-            );
-        }
-    });
+    let left_params = &*view_params;
+    let right_params = &*view_params.offset(1);
+
+    opengl::render_stream(
+        hardware_buffer,
+        [left_params.swapchain_index, right_params.swapchain_index],
+    );
 }
 
 // Decoder-related interface

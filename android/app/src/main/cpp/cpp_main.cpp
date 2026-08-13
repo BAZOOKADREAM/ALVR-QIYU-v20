@@ -855,7 +855,7 @@ Java_alvr_client_VRActivity_initializeNative(JNIEnv *env, jobject context) {
     capabilities.default_view_height = CTX.recommendedViewHeight;
     capabilities.refresh_rates = refreshRatesBuffer.data();
     capabilities.refresh_rates_count = refreshRatesCount;
-    capabilities.foveated_encoding = false;
+    capabilities.foveated_encoding = true;
     capabilities.encoder_high_profile = true;
     capabilities.encoder_10_bits = true;
     capabilities.encoder_av1 = false;
@@ -965,7 +965,7 @@ Java_alvr_client_VRActivity_onStreamStartNative(JNIEnv *_env, jobject _context) 
     streamConfig.view_resolution_height = CTX.streamViewHeight;
     streamConfig.swapchain_textures = textureHandles;
     streamConfig.swapchain_length = textureHandlesBuffer[0].size();
-    streamConfig.enable_foveation = false;
+    streamConfig.enable_foveation = CTX.enableFoveatedEncoding;
     streamConfig.enable_upscaling = false;
 
     alvr_start_stream_opengl(streamConfig);

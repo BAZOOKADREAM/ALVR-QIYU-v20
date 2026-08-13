@@ -7,6 +7,8 @@ ALVR v19.1.1 + 9 个 Qiyu 适配提交）迁移到官方 **ALVR v20.14.1** 版�
 
 - 上游基线：`alvr-org/ALVR` tag `v20.14.1`（v20 分支 `a9f6542`）
 - 参照实现：`hallychou/ALVR-QIYU` 的 `QIYU` 分支（基于官方 v19 `967f456`，即 v19.1.1）
+- 渲染后端移植参考：`PhoneVR-Developers/ALVR-phonevr` 的 `20.6.2` 分支（同样把 v19 C++
+  GL 渲染器搬回 client_core 供 C API 客户端使用）
 - 设备 SDK：`hallychou/QiyuNativeSDK`（AAR 已内置在本仓库 `QiyuNativeSDK/` 目录）
 
 ## 2. 为什么这样迁移
@@ -15,10 +17,16 @@ ALVR v20 官方 Android 客户端全面转向 OpenXR（`alvr/client_openxr` + `c
 QIYU 3 / QIYU Dream 设备没有 OpenXR runtime，只有 VrApi 兼容的 Qiyu Native SDK。因此本工程
 沿用 v19 的路径：
 
-- 继续使用 `alvr/client_core` 的 **C API**（`alvr_client_core.h`）驱动连接、解码、渲染；
+- 继续使用 `alvr/client_core` 的 **C API**（`alvr_client_core.h`）驱动连接、解码；
 - 保留 v19 QIYU 的 `android/` C++/Java 工程（Qiyu SDK 渲染、跟踪、手柄输入、振动手感、
   手柄轨迹预测），仅把与 client_core 交互的部分改写为 v20 API；
 - 流式端（PC Streamer）与官方 v20.14.1 完全协议兼容，直接使用官方发布包即可。
+
+另外一个关键点：官方 v20 C API 的 GL 渲染路径由 wgpu 的 GLES 后端实现，它会**自建一套独立
+的 EGL 上下文**来包装调用方传入的 GL 纹理。对于 C++ 客户端，这些纹理创建在应用自己的 EGL
+上下文里，两者不共享，因此画面永远渲染不进去（表现为黑屏），串流时导入 AHardwareBuffer 的
+路径也会失败。官方仓库中这条 C API 路径没有真实消费者；PhoneVR 的 v20 分支选择把 v19 的
+C++ 渲染器搬回 client_core。本工程采用同样的做法。
 
 ## 3. v19.1.1 → v20.14.1 主要 API 变化
 
@@ -33,24 +41,31 @@ QIYU 3 / QIYU Dream 设备没有 OpenXR runtime，只有 VrApi 兼容的 Qiyu Na
 | `alvr_send_tracking(target_ns, motions, n, left_hand, right_hand)` | `alvr_send_tracking(poll_ns, motions, n, hand_skeletons, eye_gazes)` | QIYU 无手部骨架/眼动，传 `nullptr` |
 | `alvr_get_frame(out_buf) -> i64` | `alvr_get_frame(out_ts_ns, out_buf) -> bool` | 时间戳与帧指针分开返回 |
 | `alvr_report_compositor_start(ts)` | `alvr_report_compositor_start(ts, out_view_params[2])` | 返回服务端协商后的视图参数（含 FOV） |
-| `alvr_start_stream_opengl(tex, len)` | `alvr_start_stream_opengl(AlvrStreamConfig)` | 分辨率/foveation/upscale 由配置结构传入 |
+| `alvr_start_stream_opengl(tex, len)` | `alvr_start_stream_opengl(AlvrStreamConfig)` | 分辨率/foveation 由配置结构传入 |
 | `alvr_render_stream_opengl(buf, indices)` | `alvr_render_stream_opengl(buf, AlvrStreamViewParams[2])` | 每眼带 swapchain index、重投影旋转、FOV |
 | `alvr_render_lobby_opengl(eye_inputs, indices)` | `alvr_render_lobby_opengl(AlvrLobbyViewParams[2], background)` | 每眼结构含位姿+FOV |
 | `AlvrDeviceMotion { orientation, position }` | `AlvrDeviceMotion { pose: AlvrPose }` | 位姿嵌套一层 |
-| 无 | `alvr_create_decoder_auto(codec)` | **本工程新增**：按服务端协商的设置自动建解码器 |
-| `alvr_get_prediction_offset_ns`（v19 已有） | `alvr_get_prediction_offset_ns`（**本工程补回**） | v20 官方 C API 未导出，已重新导出 |
+| 无 | `alvr_create_decoder_auto(codec)` | 新增：按服务端协商的设置自动建解码器 |
+| `alvr_get_prediction_offset_ns`（v19 已有） | `alvr_get_prediction_offset_ns`（重新导出） | v20 官方 C API 未导出，已补回 |
 | 无 | `alvr_hud_message` / `alvr_update_hud_message_opengl` | 大厅 HUD 提示信息 |
 
 ## 4. 代码改动清单
 
-### Rust（仅 `alvr/client_core/src/c_api.rs`）
+### Rust（`alvr/client_core/`）
 
 - 新增导出 `alvr_get_prediction_offset_ns()`；
 - 新增导出 `alvr_create_decoder_auto(AlvrCodec)`：从 `alvr_get_settings_json` 缓存的会话设置
   中取出 `force_software_decoder`、`max_buffering_frames`、`buffering_history_weight`、
   `mediacodec_extra_options`（默认含 QTI 低延迟解码选项），与 DecoderConfig 事件里的 codec、
-  CSD 数据一起构造解码器，C++ 侧无需解析 JSON；
-- `alvr_create_decoder` 的公共逻辑抽为 `create_decoder_from_config()`。
+  CSD 数据一起构造解码器，C++ 侧无需解析 JSON；`alvr_create_decoder` 的公共逻辑抽为
+  `create_decoder_from_config()`；
+- **GL 渲染后端替换为移植回 v19 的 C++ 渲染器**：`cpp/`（gl_render_utils、tinygltf、
+  gltf lobby 房间、ffr/srgb pass）由 build.rs 用 NDK clang 编译进 `libalvr_client_core.so`，
+  新增 `src/opengl.rs` 桥接（手工 extern 声明，无需 bindgen/libclang）。渲染直接发生在调用方
+  当前的 EGL 上下文中，lobby 房间与串流画面恢复 v19 行为，黑屏问题消除；
+- `alvr_start_stream_opengl` 在 C++ 只传布尔开关时，自动从会话设置补齐注视点编码参数；
+- HUD 文本在渲染线程懒上传到 lobby 纹理（`update_hud_message` 可由任意线程调用）；
+- `alvr/client_core/Cargo.toml` 增加 `glyph_brush_layout` 与 `cc`/`walkdir` 构建依赖。
 
 ### C++（`android/app/src/main/cpp/cpp_main.cpp`）
 
@@ -62,6 +77,8 @@ QIYU 3 / QIYU Dream 设备没有 OpenXR runtime，只有 VrApi 兼容的 Qiyu Na
 - 解码器生命周期：`DecoderConfig` 事件 → `alvr_create_decoder_auto`；`StreamingStopped` →
   `alvr_destroy_decoder`；
 - 流渲染使用 `alvr_report_compositor_start` 返回的 FOV；重投影旋转为恒等（无客户端重投影）；
+- `AlvrClientCapabilities.foveated_encoding = true`：声明支持注视点编码，避免服务端因能力
+  不匹配在每次连接时重启 SteamVR；流配置的 `enable_foveation` 跟随协商结果；
 - 保留 v19 已验证的 QIYU 逻辑：Jerk 估计 + 手柄轨迹预测、坐标翻转、振动手感合并、
   `qiyu_SetFoveation` 硬件注视点、三缓冲、`g_fTrackingOffset` 等；
 - 渲染目标级 QCOM foveation 保持关闭（沿用 v19 最后一个提交 "Disable foveated rendering"）。
@@ -133,14 +150,17 @@ cd alvr\android
 ## 6. 使用
 
 1. PC 端安装官方 **ALVR v20.14.1** Streamer（协议与本客户端一致，无需修改）：
-   https://github.com/alvr-org/ALVR/releases/tag/v20.14.0 或 v20.14.1
+   https://github.com/alvr-org/ALVR/releases
 2. 用 `adb install` 或 SideQuest 把客户端 APK 装到 QIYU 3 / QIYU Dream（含 Legion VR700）；
 3. 首次运行允许麦克风权限，PC 与头显同一网络下在 Streamer 中信任设备即可。
 
 ## 7. 已知限制与说明
 
-- 未连接真机做端到端验证：本工程完成了 API 迁移、完整编译与打包、符号/链接核查；
-  实际串流建议先在局域网小规模验证（帧率、延迟、手柄预测等）。
+- **Stable 包覆盖安装失败**：Stable 包名是 `alvr.client.quest`，与旧版 ALVR-QIYU（作者私钥
+  签名）签名不一致，需先卸载旧版再安装；Nightly（包名带 `.nightly`）可与旧版共存。
+- **真机排障建议**：如遇黑屏/断连，请抓取客户端日志后反馈：
+  `adb logcat -c && adb logcat -s "ALVR NATIVE:I" RustStdoutStderr:I AndroidRuntime:E libc:E DEBUG:E *:S`，
+  以及服务端 dashboard 的完整会话日志。
 - 手柄轨迹预测系数：v19 由服务端下发 `controller_prediction_multiplier`，v20 已移除该事件
   字段，当前 C++ 侧固定为 1.0。如需精细调优，可在 `eventsThread()` 中
   `controllerDisplayTimeS` 处调整。
@@ -155,6 +175,9 @@ cd alvr\android
 ```text
 alvr/                         # 官方 v20.14.1 + 上述改动（qiyu-v20 分支）
 ├── alvr/client_core/         # C API 扩展
+│   ├── cpp/                  # 移植回 v19 的 C++ GL 渲染器
+│   ├── resources/            # lobby 房间 gltf / 字体
+│   └── src/opengl.rs         # 渲染桥接
 ├── android/                  # QIYU Android 客户端（C++/Java）
 ├── QiyuNativeSDK/            # Qiyu Native SDK AAR（内置）
 └── openvr/                   # OpenVR 头文件子模块（仅构建期使用）

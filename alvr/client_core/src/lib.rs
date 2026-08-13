@@ -8,6 +8,7 @@
 mod c_api;
 mod connection;
 mod logging_backend;
+mod opengl;
 mod sockets;
 mod statistics;
 mod storage;

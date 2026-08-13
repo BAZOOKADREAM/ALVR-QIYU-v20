@@ -221,13 +221,16 @@ dependencies = [
  "alvr_system_info",
  "android_logger",
  "app_dirs2",
+ "cc",
  "env_logger",
+ "glyph_brush_layout",
  "mdns-sd",
  "ndk 0.9.0",
  "ndk-context",
  "rand 0.9.0",
  "serde",
  "serde_json",
+ "walkdir",
 ]
 
 [[package]]
