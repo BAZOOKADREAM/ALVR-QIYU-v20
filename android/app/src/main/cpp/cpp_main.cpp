@@ -786,7 +786,9 @@ void eventsThread() {
         while (alvr_poll_event(&event)) {
             if (event.tag == ALVR_EVENT_HAPTICS) {
                 auto haptics = event.HAPTICS;
-                int curHandIndex = (haptics.device_id == RIGHT_CONTROLLER_HAPTICS_ID ? 0 : 1);
+                // In v20 the server identifies the haptic target by the hand device path
+                // (e.g. /user/hand/right), not by the haptic output path like in v19.
+                int curHandIndex = (haptics.device_id == RIGHT_HAND_ID ? 0 : 1);
                 auto &s = CTX.hapticsState[curHandIndex];
                 s.startUs = 0;
                 s.endUs = (uint64_t) (haptics.duration_s * 1000'000);

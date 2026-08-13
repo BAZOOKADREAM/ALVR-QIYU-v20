@@ -177,6 +177,13 @@ cd alvr\android
   在官方 v19.1.1 QIYU 版本上已长期运行稳定，如需严格化可改为 `std::atomic<bool>`。
 - 硬件注视点渲染（`qiyu_SetFoveation`）当前在服务端开启 foveated encoding 时使用 `FL_High`，
   否则 `FL_None`。
+- 色彩：v20 服务端编码前做 gamma 2.2 变换，客户端 C++ 渲染器启用 sRGB EOTF 反向校正
+  （`enable_srgb_correction=true`），否则画面发白。
+- 触觉：v20 服务端用设备路径（`/user/hand/{left,right}`）标识触觉目标，客户端按
+  `RIGHT_HAND_ID` 区分左右手柄。
+- 有线串流：v20 通过服务端 adb 发现设备。本 fork 包名为 `alvr.client.quest(.nightly)`，
+  需在 dashboard 的 Devices 页开启 Wired client，并在 Connection 设置里把
+  "Wired client type" 设为 Custom 并填入对应包名（或改代码 applicationId 为 `alvr.client`）。
 
 ## 8. 目录结构
 

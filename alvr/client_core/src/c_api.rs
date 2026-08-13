@@ -869,7 +869,7 @@ pub unsafe extern "C" fn alvr_start_stream_opengl(config: AlvrStreamConfig) {
         view_resolution,
         swapchain_textures,
         foveated_encoding,
-        false,
+        true,
     );
 }
 
