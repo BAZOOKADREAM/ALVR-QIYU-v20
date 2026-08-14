@@ -1,90 +1,39 @@
-<p align="center"> <img width="500" src="resources/ALVR-Grey.svg"/> </p>
+# ALVR for QIYU (v20.14.1)
 
-# ALVR - Air Light VR
+把已验证的 [ALVR-QIYU v19.1.1](https://github.com/hallychou/ALVR-QIYU) 迁移到官方
+[ALVR v20.14.1](https://github.com/alvr-org/ALVR/releases/tag/v20.14.1) 版本线的客户端适配工程，
+面向 **QIYU 3 / QIYU Dream 系列（含 Lenovo Legion VR700）**。
 
-[![badge-discord][]][link-discord] [![badge-matrix][]][link-matrix] [![badge-opencollective][]][link-opencollective]
+## 这是什么
 
-Stream VR games from your PC to your headset via Wi-Fi.
-This is a fork of [ALVR](https://github.com/polygraphene/ALVR).
+- 基于官方 ALVR v20.14.1 的 `client_core` C API；
+- 完整移植 v19.1.1 QIYU 的 C++/Java 客户端（Qiyu Native SDK 渲染、跟踪、手柄输入、
+  振动手感、手柄轨迹预测）；
+- 流式端（PC Streamer）与官方 v20.14.1 完全协议兼容，直接用官方发布包即可；
+- 内置 Qiyu Native SDK AAR（来源：[QiyuNativeSDK](https://github.com/hallychou/QiyuNativeSDK)）。
 
-### Direct download to the latest version:
-### [Windows Launcher](https://github.com/alvr-org/ALVR/releases/latest/download/alvr_launcher_windows.zip) | [Linux Launcher](https://github.com/alvr-org/ALVR/releases/latest/download/alvr_launcher_linux.tar.gz)
+## 快速开始
 
-## Compatibility
+1. PC 端安装官方 **ALVR v20.14.1 Streamer**；
+2. 在本仓库的 [Releases](../../releases) 下载客户端 APK 安装到头显：
+   - `...-nightly.apk`：包名 `alvr.client.quest.nightly`，可与旧版共存，推荐先用它测试；
+   - `....apk`（Stable）：包名 `alvr.client.quest`，如已装旧版 ALVR-QIYU 需先卸载；
+3. 在 Streamer 的 Video 设置中把转码分辨率设为 **2048（或启用 Scale 100%）**——
+   QIYU 硬件解码器不支持默认的 4288px 宽码流，否则会解码失败循环重连；
+4. 首次运行允许麦克风权限，同一网络下在 Streamer 中信任设备即可。
 
-|          VR Headset          |                                        Support                                         |
-| :--------------------------: | :------------------------------------------------------------------------------------: |
-|       Apple Vision Pro       |    :heavy_check_mark: ([store link](https://apps.apple.com/app/alvr/id6479728026))     |
-|      Quest 1/2/3/3S/Pro      | :heavy_check_mark: ([store link](https://www.meta.com/experiences/7674846229245715) *) |
-|     Pico Neo 3/4/4 Ultra     |                                   :heavy_check_mark:                                   |
-|    Play For Dream YVR 1/2/MR |                                   :heavy_check_mark:                                   |
-| Vive Focus 3/Vision/XR Elite |                                   :heavy_check_mark:                                   |
-|           Lynx R1            |                                   :heavy_check_mark:                                   |
-|     PhoneVR (smartphone)     |     :heavy_check_mark: ** ([repo](https://github.com/PhoneVR-Developers/PhoneVR))      |
-|        Android/Monado        |                                      :warning: **                                      |
-|          Oculus Go           |                 :x: ([old repo](https://github.com/polygraphene/ALVR))                 |
+## 从源码构建 / 迁移说明
 
-\* : ALVR for Quest 1 not available through the Meta store.  
-\** : Only works on some smartphones, not enough testing.  
+详见 [QIYU_V20.md](QIYU_V20.md)（工具链、构建命令、v19→v20 API 映射、已知限制）。
 
-|     PC OS      |                                    Support                                    |
-| :------------: | :---------------------------------------------------------------------------: |
-| Windows 10/11  | :heavy_check_mark: ([store link](https://store.steampowered.com/app/3312710)) |
-| Windows XP/7/8 |                                      :x:                                      |
-|     Linux      |                             :heavy_check_mark:***                             |
-|     macOS      |                                      :x:                                      |
+## 已知限制
 
-\*** : Linux support is still in beta. To be able to make audio work or run ALVR at all you may need advanced knowledge of your distro for debugging or building from source.
+- 无手部骨架/眼动数据，服务端手部追踪功能不可用；
+- 有线串流需要在 Streamer 的 Connection 设置里把 "Wired client type" 设为 Custom，
+  包名填 `alvr.client.quest`（Stable）或 `alvr.client.quest.nightly`（Nightly）。
 
-### Requirements
+## 致谢
 
--   A supported standalone VR headset (see compatibility table above)
-
--   SteamVR
-
--   High-end gaming PC
-    -   See OS compatibility table above.
-    -   NVIDIA GPU that supports NVENC (1000 GTX Series or higher) (or with an AMD GPU that supports AMF VCE) with the latest driver.
-    -   Laptops with an onboard (Intel HD, AMD iGPU) and an additional dedicated GPU (NVidia GTX/RTX, AMD HD/R5/R7): you should assign the dedicated GPU or "high performance graphics adapter" to the applications ALVR, SteamVR for best performance and compatibility. (NVidia: Nvidia control panel->3d settings->application settings; AMD: similiar way)
-
--   802.11ac 5Ghz wireless or ethernet wired connection
-    -   It is recommended to use 802.11ac 5Ghz for the headset and ethernet for PC
-    -   You need to connect both the PC and the headset to same router (or use a routed connection as described [here](https://github.com/alvr-org/ALVR/wiki/ALVR-v14-and-Above))
-
-## Install
-
-Follow the installation guide [here](https://github.com/alvr-org/ALVR/wiki/Installation-guide).
-
-## Troubleshooting
-
--   Please check the [Troubleshooting](https://github.com/alvr-org/ALVR/wiki/Troubleshooting) page, and also [Linux Troubleshooting](https://github.com/alvr-org/ALVR/wiki/Linux-Troubleshooting) if applicable.
--   Configuration recommendations and information may be found [here](https://github.com/alvr-org/ALVR/wiki/Information-and-Recommendations)
-
-## Uninstall
-
-Open `ALVR Dashboard.exe`, go to `Installation` tab then press `Remove firewall rules`. Close ALVR window and delete the ALVR folder.
-
-## Build from source
-
-You can follow the guide [here](https://github.com/alvr-org/ALVR/wiki/Building-From-Source).
-
-## License
-
-ALVR is licensed under the [MIT License](LICENSE).
-
-## Privacy policy
-
-ALVR apps do not directly collect any kind of data.
-
-## Donate
-
-If you want to support this project you can make a donation to our [Open Source Collective account](https://opencollective.com/alvr).
-
-You can also donate to the original author of ALVR using Paypal (polygraphene@gmail.com) or with bitcoin (1FCbmFVSjsmpnAj6oLx2EhnzQzzhyxTLEv).
-
-[badge-discord]: https://img.shields.io/discord/720612397580025886?style=for-the-badge&logo=discord&color=5865F2 "Join us on Discord"
-[link-discord]: https://discord.gg/ALVR
-[badge-matrix]: https://img.shields.io/static/v1?label=chat&message=%23alvr&style=for-the-badge&logo=matrix&color=blueviolet "Join us on Matrix"
-[link-matrix]: https://matrix.to/#/#alvr:ckie.dev?via=ckie.dev
-[badge-opencollective]: https://img.shields.io/opencollective/all/alvr?style=for-the-badge&logo=opencollective&color=79a3e6 "Donate"
-[link-opencollective]: https://opencollective.com/alvr
+- 上游：[alvr-org/ALVR](https://github.com/alvr-org/ALVR)（MIT License）
+- v19 适配参照：[hallychou/ALVR-QIYU](https://github.com/hallychou/ALVR-QIYU)
+- 设备 SDK：[hallychou/QiyuNativeSDK](https://github.com/hallychou/QiyuNativeSDK)
