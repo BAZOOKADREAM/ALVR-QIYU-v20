@@ -1,0 +1,56 @@
+name: Build QIYU Android client
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-android-client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-33,build-tools;33.0.0,cmake;3.22.1,ndk;25.1.8937393"
+
+      - name: Set Android NDK environment
+        run: echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393" >> "$GITHUB_ENV"
+
+      - name: Install Rust build tools
+        run: |
+          cargo install --locked cargo-ndk
+          cargo install --locked cbindgen
+
+      - name: Build Android client library
+        run: cargo xtask build-client-lib --release
+
+      - name: Build QIYU APKs
+        working-directory: android
+        run: bash gradlew assembleRelease
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: qiyu-android-apks
+          path: android/app/build/outputs/apk/*/release/*.apk
+          if-no-files-found: error
