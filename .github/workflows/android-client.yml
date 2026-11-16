@@ -34,7 +34,9 @@ jobs:
           packages: "platforms;android-33 build-tools;33.0.0 cmake;3.22.1 ndk;25.1.8937393"
 
       - name: Set Android NDK environment
-        run: echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393" >> "$GITHUB_ENV"
+        run: |
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/25.1.8937393" >> "$GITHUB_ENV"
 
       - name: Install Rust build tools
         run: |
