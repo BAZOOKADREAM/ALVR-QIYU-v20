@@ -44,7 +44,7 @@ jobs:
           cargo install --locked cbindgen
 
       - name: Build Android client library
-        run: cargo xtask build-client-lib --release
+        run: cargo xtask build-client-lib --release --no-stdcpp
 
       - name: Build QIYU APKs
         working-directory: android

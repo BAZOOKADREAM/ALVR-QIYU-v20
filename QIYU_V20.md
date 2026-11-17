@@ -155,6 +155,8 @@ cd alvr\android
 推送到 `master` 或创建针对 `master` 的 Pull Request 时，GitHub Actions 会自动构建这两个 APK；
 也可以在 Actions 页面手动运行 **Build QIYU Android client**。完成后从运行记录下载
 `qiyu-android-apks` artifact。工作流只编译 Android 客户端及其 `client_core`，不构建 Windows 服务端。
+CI 使用 `cargo xtask build-client-lib --release --no-stdcpp`：Android C++ 代码已静态链接 libc++，
+因此需关闭额外的 `libc++_shared.so` 链接，避免 APK 启动时缺少该运行库。
 APK 使用项目配置的 debug 签名，仅供测试。
 
 仓库根目录的 `dist/` 已放有本机构建结果：
