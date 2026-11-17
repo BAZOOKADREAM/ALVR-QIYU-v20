@@ -231,6 +231,7 @@ public:
         uint64_t endUs;
         uint64_t sdkEndUs;
         float amplitude;
+        float sdkAmplitude;
         bool pending;
         bool active;
     };
@@ -585,6 +586,7 @@ void updateHapticsState() {
     }
 
     constexpr uint64_t MAX_SDK_HAPTIC_DURATION_US = 4'000'000;
+    constexpr uint64_t MIN_HAPTIC_DURATION_US = 50'000;
     const uint64_t currentUs = getTimestampNs() / 1000;
     std::lock_guard<std::mutex> lock(CTX.hapticsMutex);
 
@@ -610,8 +612,12 @@ void updateHapticsState() {
                 continue;
             }
 
-            state.endUs = currentUs + state.durationUs;
-            state.sdkEndUs = 0;
+            const uint64_t requestedDurationUs = std::max(state.durationUs, MIN_HAPTIC_DURATION_US);
+            state.endUs = state.active ? std::max(state.endUs, currentUs + requestedDurationUs)
+                                       : currentUs + requestedDurationUs;
+            if (!state.active || state.amplitude != state.sdkAmplitude) {
+                state.sdkEndUs = 0;
+            }
             state.active = true;
         }
 
@@ -645,6 +651,7 @@ void updateHapticsState() {
             qiyu_StartControllerVibration(
                 controller, state.amplitude, static_cast<float>(durationUs) / 1e6f
             );
+            state.sdkAmplitude = state.amplitude;
             state.sdkEndUs = currentUs + durationUs;
         }
     }
