@@ -820,9 +820,10 @@ void eventsThread() {
                     ? std::max(0.f, std::min(haptics.duration_s, MAX_HAPTIC_DURATION_S))
                     : 0.f;
                 s.durationUs = static_cast<uint64_t>(durationSeconds * 1'000'000);
-                s.amplitude = std::isfinite(haptics.amplitude)
+                // Zero-amplitude OpenVR haptic events signal that vibration should stop.
+                s.amplitude = std::isfinite(haptics.amplitude) && haptics.amplitude > 0.f
                     ? std::max(0.2f, std::min(haptics.amplitude, 1.f))
-                    : 0.2f;
+                    : 0.f;
                 s.pending = true;
                 __android_log_print(
                     ANDROID_LOG_INFO,
