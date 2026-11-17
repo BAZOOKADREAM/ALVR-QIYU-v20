@@ -229,10 +229,12 @@ public:
     struct HapticsState {
         uint64_t durationUs;
         uint64_t endUs;
+        uint64_t minimumEndUs;
         uint64_t sdkEndUs;
         float amplitude;
         float sdkAmplitude;
         bool pending;
+        bool stopPending;
         bool active;
     };
     HapticsState hapticsState[2]{};
@@ -601,7 +603,18 @@ void updateHapticsState() {
 
         if (state.pending) {
             state.pending = false;
-            if (state.durationUs == 0 || state.amplitude <= 0.f) {
+            const uint64_t requestedDurationUs = std::max(state.durationUs, MIN_HAPTIC_DURATION_US);
+            state.endUs = state.active ? std::max(state.endUs, currentUs + requestedDurationUs)
+                                       : currentUs + requestedDurationUs;
+            state.minimumEndUs = std::max(state.minimumEndUs, currentUs + MIN_HAPTIC_DURATION_US);
+            if (!state.active || state.amplitude != state.sdkAmplitude) {
+                state.sdkEndUs = 0;
+            }
+            state.active = true;
+        }
+
+        if (state.stopPending) {
+            if (!state.active || currentUs >= state.minimumEndUs) {
                 if (state.active) {
                     __android_log_print(
                         ANDROID_LOG_INFO,
@@ -612,16 +625,9 @@ void updateHapticsState() {
                     finishHapticsBuffer(controller);
                     state.active = false;
                 }
+                state.stopPending = false;
                 continue;
             }
-
-            const uint64_t requestedDurationUs = std::max(state.durationUs, MIN_HAPTIC_DURATION_US);
-            state.endUs = state.active ? std::max(state.endUs, currentUs + requestedDurationUs)
-                                       : currentUs + requestedDurationUs;
-            if (!state.active || state.amplitude != state.sdkAmplitude) {
-                state.sdkEndUs = 0;
-            }
-            state.active = true;
         }
 
         if (!state.active) {
@@ -637,6 +643,7 @@ void updateHapticsState() {
             );
             finishHapticsBuffer(controller);
             state.active = false;
+            state.stopPending = false;
             continue;
         }
 
@@ -835,12 +842,18 @@ void eventsThread() {
                 const float durationSeconds = std::isfinite(haptics.duration_s)
                     ? std::max(0.f, std::min(haptics.duration_s, MAX_HAPTIC_DURATION_S))
                     : 0.f;
-                s.durationUs = static_cast<uint64_t>(durationSeconds * 1'000'000);
                 // Zero-amplitude OpenVR haptic events signal that vibration should stop.
-                s.amplitude = std::isfinite(haptics.amplitude) && haptics.amplitude > 0.f
+                const float amplitude = std::isfinite(haptics.amplitude) && haptics.amplitude > 0.f
                     ? std::max(0.2f, std::min(haptics.amplitude, 1.f))
                     : 0.f;
-                s.pending = true;
+                if (durationSeconds == 0.f || amplitude == 0.f) {
+                    s.stopPending = true;
+                } else {
+                    s.durationUs = static_cast<uint64_t>(durationSeconds * 1'000'000);
+                    s.amplitude = amplitude;
+                    s.pending = true;
+                    s.stopPending = false;
+                }
                 __android_log_print(
                     ANDROID_LOG_INFO,
                     "ALVR-HAPTICS",
