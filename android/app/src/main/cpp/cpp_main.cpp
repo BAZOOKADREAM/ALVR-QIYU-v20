@@ -11,6 +11,7 @@
 #include <GLES3/gl3.h>
 #include <android/log.h>
 #include <android/native_window_jni.h>
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -182,6 +183,8 @@ struct QYEyeBuffer {
     int index;
 };
 
+constexpr float MAX_HAPTIC_DURATION_S = 60.f;
+
 class NativeContext {
 public:
     JavaVM *vm;
@@ -224,14 +227,15 @@ public:
     std::map<uint64_t, AlvrButtonValue> previousButtonsState;
 
     struct HapticsState {
-        uint64_t startUs;
+        uint64_t durationUs;
         uint64_t endUs;
+        uint64_t sdkEndUs;
         float amplitude;
-        float frequency;
-        bool fresh;
-        bool buffered;
+        bool pending;
+        bool active;
     };
     HapticsState hapticsState[2]{};
+    std::mutex hapticsMutex;
 };
 
 NativeContext CTX = {};
@@ -576,52 +580,53 @@ uint8_t getControllerBattery(int index) {
 auto& finishHapticsBuffer = qiyu_StopControllerVibration;
 
 void updateHapticsState() {
-    qiyu_ControllerMask curCaps;
-
-    if(!qiyu_IsControllerInit()) {
+    if (!qiyu_IsControllerInit()) {
         return;
     }
 
-    for (uint32_t deviceIndex = 0;
-         deviceIndex < CI_COUNT;
-         deviceIndex++) {
+    constexpr uint64_t MAX_SDK_HAPTIC_DURATION_US = 4'000'000;
+    const uint64_t currentUs = getTimestampNs() / 1000;
+    std::lock_guard<std::mutex> lock(CTX.hapticsMutex);
 
-        curCaps = deviceIndex ? qiyu_ControllerMask::CM_Right : qiyu_ControllerMask::CM_Left;
+    for (uint32_t deviceIndex = 0; deviceIndex < CI_COUNT; deviceIndex++) {
+        const auto controller
+            = deviceIndex ? qiyu_ControllerMask::CM_Right : qiyu_ControllerMask::CM_Left;
+        const int handIndex = deviceIndex ? 0 : 1;
+        auto& state = CTX.hapticsState[handIndex];
 
-        int curHandIndex =
-                deviceIndex ? 0 : 1;
-        auto &s = CTX.hapticsState[curHandIndex];
+        if (state.pending) {
+            state.pending = false;
+            if (state.durationUs == 0 || state.amplitude <= 0.f) {
+                if (state.active) {
+                    finishHapticsBuffer(controller);
+                    state.active = false;
+                }
+                continue;
+            }
 
-        uint64_t currentUs = getTimestampUs();
-
-        if (s.fresh) {
-            s.startUs = s.startUs + currentUs;
-            s.endUs = s.startUs + s.endUs;
-            s.fresh = false;
+            state.endUs = currentUs + state.durationUs;
+            state.sdkEndUs = 0;
+            state.active = true;
         }
 
-        if (s.startUs <= 0) {
-            // No requested haptics for this hand.
-            if (s.buffered) {
-                finishHapticsBuffer(curCaps);
-                s.buffered = false;
-            }
+        if (!state.active) {
             continue;
         }
 
-        if (currentUs >= s.endUs) {
-            // No more haptics is needed.
-            s.startUs = 0;
-            if (s.buffered) {
-                finishHapticsBuffer(curCaps);
-                s.buffered = false;
-            }
+        if (currentUs >= state.endUs) {
+            finishHapticsBuffer(controller);
+            state.active = false;
             continue;
         }
 
-        qiyu_StartControllerVibration(
-            curCaps, s.amplitude, (float) (s.endUs - currentUs) / 1e6);
-        s.buffered = true;
+        if (currentUs >= state.sdkEndUs) {
+            const uint64_t durationUs
+                = std::min(state.endUs - currentUs, MAX_SDK_HAPTIC_DURATION_US);
+            qiyu_StartControllerVibration(
+                controller, state.amplitude, static_cast<float>(durationUs) / 1e6f
+            );
+            state.sdkEndUs = currentUs + durationUs;
+        }
     }
 }
 
@@ -789,13 +794,16 @@ void eventsThread() {
                 // In v20 the server identifies the haptic target by the hand device path
                 // (e.g. /user/hand/right), not by the haptic output path like in v19.
                 int curHandIndex = (haptics.device_id == RIGHT_HAND_ID ? 0 : 1);
-                auto &s = CTX.hapticsState[curHandIndex];
-                s.startUs = 0;
-                s.endUs = (uint64_t) (haptics.duration_s * 1000'000);
-                s.amplitude = (haptics.amplitude > 0.2) ? haptics.amplitude : 0.2;
-                s.frequency = haptics.frequency;
-                s.fresh = true;
-                s.buffered = false;
+                std::lock_guard<std::mutex> lock(CTX.hapticsMutex);
+                auto& s = CTX.hapticsState[curHandIndex];
+                const float durationSeconds = std::isfinite(haptics.duration_s)
+                    ? std::max(0.f, std::min(haptics.duration_s, MAX_HAPTIC_DURATION_S))
+                    : 0.f;
+                s.durationUs = static_cast<uint64_t>(durationSeconds * 1'000'000);
+                s.amplitude = std::isfinite(haptics.amplitude)
+                    ? std::max(0.2f, std::min(haptics.amplitude, 1.f))
+                    : 0.2f;
+                s.pending = true;
             } else if (event.tag == ALVR_EVENT_STREAMING_STARTED) {
                 CTX.streamViewWidth = event.STREAMING_STARTED.view_width;
                 CTX.streamViewHeight = event.STREAMING_STARTED.view_height;
@@ -851,7 +859,11 @@ Java_alvr_client_VRActivity_initializeNative(JNIEnv *env, jobject context) {
 
     eglInit();
 
-    memset(CTX.hapticsState, 0, sizeof(CTX.hapticsState));
+    {
+        std::lock_guard<std::mutex> lock(CTX.hapticsMutex);
+        CTX.hapticsState[0] = {};
+        CTX.hapticsState[1] = {};
+    }
     QY_GL_EXT::InitFunction_Foveation();
     qiyu_Init(java.ActivityObject,
 			  java.Vm,
@@ -1058,7 +1070,9 @@ Java_alvr_client_VRActivity_renderNative(JNIEnv *_env, jobject _context) {
     CTX.lastFrameTimeUs = currentUs;
 
     if (CTX.streaming.load()) {
-        void *streamHardwareBuffer = nullptr;
+        updateHapticsState();
+
+        void* streamHardwareBuffer = nullptr;
         uint64_t timestampNs = 0;
         if (!alvr_get_frame(&timestampNs, &streamHardwareBuffer)) {
             return;
@@ -1068,14 +1082,12 @@ Java_alvr_client_VRActivity_renderNative(JNIEnv *_env, jobject _context) {
         // been adjusted by the server for canting.
         AlvrViewParams viewParams[2] = {};
         alvr_report_compositor_start(timestampNs, viewParams);
-        if (viewParams[0].fov.left == 0.f && viewParams[0].fov.right == 0.f &&
-            viewParams[0].fov.up == 0.f && viewParams[0].fov.down == 0.f) {
+        if (viewParams[0].fov.left == 0.f && viewParams[0].fov.right == 0.f
+            && viewParams[0].fov.up == 0.f && viewParams[0].fov.down == 0.f) {
             qiyu_DeviceInfo di = qiyu_GetDeviceInfo();
             viewParams[0].fov = getFov(&di, 0);
             viewParams[1].fov = getFov(&di, 1);
         }
-
-        updateHapticsState();
 
         bool trackingFound = false;
         {
