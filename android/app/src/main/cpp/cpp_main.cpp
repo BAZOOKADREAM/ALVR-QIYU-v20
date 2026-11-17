@@ -586,7 +586,10 @@ void updateHapticsState() {
     }
 
     constexpr uint64_t MAX_SDK_HAPTIC_DURATION_US = 4'000'000;
+    // Keep SDK commands alive across frame-rate updates; endUs remains the logical stop deadline.
+    constexpr uint64_t MIN_SDK_HAPTIC_DURATION_US = 250'000;
     constexpr uint64_t MIN_HAPTIC_DURATION_US = 50'000;
+    constexpr uint64_t SDK_HAPTIC_REFRESH_MARGIN_US = 20'000;
     const uint64_t currentUs = getTimestampNs() / 1000;
     std::lock_guard<std::mutex> lock(CTX.hapticsMutex);
 
@@ -637,9 +640,15 @@ void updateHapticsState() {
             continue;
         }
 
-        if (currentUs >= state.sdkEndUs) {
-            const uint64_t durationUs
-                = std::min(state.endUs - currentUs, MAX_SDK_HAPTIC_DURATION_US);
+        const bool sdkCommandNeedsRefresh = currentUs >= state.sdkEndUs
+            || (state.endUs > state.sdkEndUs
+                && state.endUs - state.sdkEndUs >= SDK_HAPTIC_REFRESH_MARGIN_US
+                && currentUs + SDK_HAPTIC_REFRESH_MARGIN_US >= state.sdkEndUs);
+        if (sdkCommandNeedsRefresh) {
+            const uint64_t durationUs = std::min(
+                std::max(state.endUs - currentUs, MIN_SDK_HAPTIC_DURATION_US),
+                MAX_SDK_HAPTIC_DURATION_US
+            );
             __android_log_print(
                 ANDROID_LOG_INFO,
                 "ALVR-HAPTICS",
