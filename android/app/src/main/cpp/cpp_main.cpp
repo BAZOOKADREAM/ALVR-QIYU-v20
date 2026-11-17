@@ -598,6 +598,12 @@ void updateHapticsState() {
             state.pending = false;
             if (state.durationUs == 0 || state.amplitude <= 0.f) {
                 if (state.active) {
+                    __android_log_print(
+                        ANDROID_LOG_INFO,
+                        "ALVR-HAPTICS",
+                        "stop hand=%s reason=zero_duration",
+                        handIndex == 0 ? "right" : "left"
+                    );
                     finishHapticsBuffer(controller);
                     state.active = false;
                 }
@@ -614,6 +620,12 @@ void updateHapticsState() {
         }
 
         if (currentUs >= state.endUs) {
+            __android_log_print(
+                ANDROID_LOG_INFO,
+                "ALVR-HAPTICS",
+                "stop hand=%s reason=deadline",
+                handIndex == 0 ? "right" : "left"
+            );
             finishHapticsBuffer(controller);
             state.active = false;
             continue;
@@ -622,6 +634,14 @@ void updateHapticsState() {
         if (currentUs >= state.sdkEndUs) {
             const uint64_t durationUs
                 = std::min(state.endUs - currentUs, MAX_SDK_HAPTIC_DURATION_US);
+            __android_log_print(
+                ANDROID_LOG_INFO,
+                "ALVR-HAPTICS",
+                "start hand=%s duration_ms=%llu amplitude=%.3f",
+                handIndex == 0 ? "right" : "left",
+                static_cast<unsigned long long>(durationUs / 1000),
+                state.amplitude
+            );
             qiyu_StartControllerVibration(
                 controller, state.amplitude, static_cast<float>(durationUs) / 1e6f
             );
@@ -804,6 +824,16 @@ void eventsThread() {
                     ? std::max(0.2f, std::min(haptics.amplitude, 1.f))
                     : 0.2f;
                 s.pending = true;
+                __android_log_print(
+                    ANDROID_LOG_INFO,
+                    "ALVR-HAPTICS",
+                    "request hand=%s id=%llu duration_s=%.4f frequency=%.2f amplitude=%.3f",
+                    curHandIndex == 0 ? "right" : "left",
+                    static_cast<unsigned long long>(haptics.device_id),
+                    haptics.duration_s,
+                    haptics.frequency,
+                    haptics.amplitude
+                );
             } else if (event.tag == ALVR_EVENT_STREAMING_STARTED) {
                 CTX.streamViewWidth = event.STREAMING_STARTED.view_width;
                 CTX.streamViewHeight = event.STREAMING_STARTED.view_height;
