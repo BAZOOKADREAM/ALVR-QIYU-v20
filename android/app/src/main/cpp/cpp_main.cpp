@@ -616,12 +616,6 @@ void updateHapticsState() {
         if (state.stopPending) {
             if (!state.active || currentUs >= state.minimumEndUs) {
                 if (state.active) {
-                    __android_log_print(
-                        ANDROID_LOG_INFO,
-                        "ALVR-HAPTICS",
-                        "stop hand=%s reason=zero_duration",
-                        handIndex == 0 ? "right" : "left"
-                    );
                     finishHapticsBuffer(controller);
                     state.active = false;
                 }
@@ -635,12 +629,6 @@ void updateHapticsState() {
         }
 
         if (currentUs >= state.endUs) {
-            __android_log_print(
-                ANDROID_LOG_INFO,
-                "ALVR-HAPTICS",
-                "stop hand=%s reason=deadline",
-                handIndex == 0 ? "right" : "left"
-            );
             finishHapticsBuffer(controller);
             state.active = false;
             state.stopPending = false;
@@ -655,14 +643,6 @@ void updateHapticsState() {
             const uint64_t durationUs = std::min(
                 std::max(state.endUs - currentUs, MIN_SDK_HAPTIC_DURATION_US),
                 MAX_SDK_HAPTIC_DURATION_US
-            );
-            __android_log_print(
-                ANDROID_LOG_INFO,
-                "ALVR-HAPTICS",
-                "start hand=%s duration_ms=%llu amplitude=%.3f",
-                handIndex == 0 ? "right" : "left",
-                static_cast<unsigned long long>(durationUs / 1000),
-                state.amplitude
             );
             qiyu_StartControllerVibration(
                 controller, state.amplitude, static_cast<float>(durationUs) / 1e6f
@@ -842,7 +822,7 @@ void eventsThread() {
                 const float durationSeconds = std::isfinite(haptics.duration_s)
                     ? std::max(0.f, std::min(haptics.duration_s, MAX_HAPTIC_DURATION_S))
                     : 0.f;
-                // Zero-amplitude OpenVR haptic events signal that vibration should stop.
+                // Defer stop requests until an active pulse has met its minimum duration.
                 const float amplitude = std::isfinite(haptics.amplitude) && haptics.amplitude > 0.f
                     ? std::max(0.2f, std::min(haptics.amplitude, 1.f))
                     : 0.f;
@@ -854,16 +834,6 @@ void eventsThread() {
                     s.pending = true;
                     s.stopPending = false;
                 }
-                __android_log_print(
-                    ANDROID_LOG_INFO,
-                    "ALVR-HAPTICS",
-                    "request hand=%s id=%llu duration_s=%.4f frequency=%.2f amplitude=%.3f",
-                    curHandIndex == 0 ? "right" : "left",
-                    static_cast<unsigned long long>(haptics.device_id),
-                    haptics.duration_s,
-                    haptics.frequency,
-                    haptics.amplitude
-                );
             } else if (event.tag == ALVR_EVENT_STREAMING_STARTED) {
                 CTX.streamViewWidth = event.STREAMING_STARTED.view_width;
                 CTX.streamViewHeight = event.STREAMING_STARTED.view_height;
