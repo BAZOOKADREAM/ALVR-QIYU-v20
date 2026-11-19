@@ -51,7 +51,7 @@ struct FfiStreamConfig {
     foveation_center_shift_y: f32,
     foveation_edge_ratio_x: f32,
     foveation_edge_ratio_y: f32,
-    enable_srgb_correction: u32,
+    encoding_gamma: f32,
 }
 
 #[cfg(target_os = "android")]
@@ -133,7 +133,7 @@ pub fn start_stream(
     view_resolution: UVec2,
     swapchain_textures: [Vec<u32>; 2],
     foveated_encoding: Option<FoveatedEncodingConfig>,
-    enable_srgb_correction: bool,
+    encoding_gamma: f32,
 ) {
     #[cfg(target_os = "android")]
     unsafe {
@@ -170,7 +170,7 @@ pub fn start_stream(
                 .as_ref()
                 .map(|f| f.edge_ratio_y)
                 .unwrap_or_default(),
-            enable_srgb_correction: enable_srgb_correction as u32,
+            encoding_gamma,
         };
 
         streamStartNative(config);

@@ -721,6 +721,7 @@ pub struct AlvrStreamConfig {
     upscaling_edge_threshold: f32,
     upscaling_edge_sharpness: f32,
     upscale_factor: f32,
+    encoding_gamma: f32,
 }
 
 #[no_mangle]
@@ -869,7 +870,7 @@ pub unsafe extern "C" fn alvr_start_stream_opengl(config: AlvrStreamConfig) {
         view_resolution,
         swapchain_textures,
         foveated_encoding,
-        false,
+        config.encoding_gamma,
     );
 }
 

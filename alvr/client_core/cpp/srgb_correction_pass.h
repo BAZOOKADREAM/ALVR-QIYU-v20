@@ -9,7 +9,7 @@ class SrgbCorrectionPass {
   public:
     SrgbCorrectionPass(gl_render_utils::Texture *inputSurface);
 
-    void Initialize(uint32_t width, uint32_t height, bool passthrough);
+    void Initialize(uint32_t width, uint32_t height, float encodingGamma);
 
     void Render() const;
 
@@ -17,6 +17,7 @@ class SrgbCorrectionPass {
 
   private:
     gl_render_utils::Texture *mInputSurface;
+    float mEncodingGamma = 1.0f;
     std::unique_ptr<gl_render_utils::Texture> mOutputTexture;
     std::unique_ptr<gl_render_utils::RenderState> mOutputTextureState;
     std::unique_ptr<gl_render_utils::RenderPipeline> mStagingPipeline;

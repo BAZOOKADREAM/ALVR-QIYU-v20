@@ -204,6 +204,7 @@ public:
     uint32_t streamViewWidth = 1;
     uint32_t streamViewHeight = 1;
     float refreshRate = 72.f;
+    float encodingGamma = 1.0f;
     bool enableFoveatedEncoding = false;
     bool enableHdr = false;
 
@@ -842,6 +843,7 @@ void eventsThread() {
                 }
                 CTX.enableFoveatedEncoding = event.STREAMING_STARTED.enable_foveated_encoding;
                 CTX.enableHdr = event.STREAMING_STARTED.enable_hdr;
+                CTX.encodingGamma = event.STREAMING_STARTED.encoding_gamma;
                 diag("[STREAM] negotiated encoding_gamma=%.3f",
                      event.STREAMING_STARTED.encoding_gamma);
                 java.Env->CallVoidMethod(java.ActivityObject, onStreamStartMethod);
@@ -1044,6 +1046,7 @@ Java_alvr_client_VRActivity_onStreamStartNative(JNIEnv *_env, jobject _context) 
     streamConfig.swapchain_length = textureHandlesBuffer[0].size();
     streamConfig.enable_foveation = CTX.enableFoveatedEncoding;
     streamConfig.enable_upscaling = false;
+    streamConfig.encoding_gamma = CTX.encodingGamma;
 
     alvr_start_stream_opengl(streamConfig);
 
