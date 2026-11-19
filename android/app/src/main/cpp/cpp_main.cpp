@@ -931,7 +931,7 @@ Java_alvr_client_VRActivity_initializeNative(JNIEnv *env, jobject context) {
     capabilities.encoder_av1 = false;
     capabilities.prefer_10bit = false;
     capabilities.prefer_full_range = false;
-    capabilities.preferred_encoding_gamma = 2.2f;
+    capabilities.preferred_encoding_gamma = 1.0f;
     capabilities.prefer_hdr = false;
     alvr_initialize(capabilities);
 
