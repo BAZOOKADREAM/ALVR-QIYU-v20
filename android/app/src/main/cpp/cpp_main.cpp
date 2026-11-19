@@ -844,8 +844,6 @@ void eventsThread() {
                 CTX.enableFoveatedEncoding = event.STREAMING_STARTED.enable_foveated_encoding;
                 CTX.enableHdr = event.STREAMING_STARTED.enable_hdr;
                 CTX.encodingGamma = event.STREAMING_STARTED.encoding_gamma;
-                diag("[STREAM] negotiated encoding_gamma=%.3f",
-                     event.STREAMING_STARTED.encoding_gamma);
                 java.Env->CallVoidMethod(java.ActivityObject, onStreamStartMethod);
             } else if (event.tag == ALVR_EVENT_STREAMING_STOPPED) {
                 java.Env->CallVoidMethod(java.ActivityObject, onStreamStopMethod);
