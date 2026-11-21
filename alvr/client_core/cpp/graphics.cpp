@@ -580,19 +580,19 @@ void ovrRenderer_Create(ovrRenderer *renderer,
                         std::vector<GLuint> textures[2],
                         FFRData ffrData,
                         bool isLobby,
-                        bool enableSrgbCorrection) {
+                        float encodingGamma) {
     if (!isLobby) {
         renderer->srgbCorrectionPass = std::make_unique<SrgbCorrectionPass>(streamTexture);
         renderer->enableFFE = ffrData.enabled;
         if (renderer->enableFFE) {
             FoveationVars fv = CalculateFoveationVars(ffrData);
             renderer->srgbCorrectionPass->Initialize(
-                fv.optimizedEyeWidth, fv.optimizedEyeHeight, !enableSrgbCorrection);
+                fv.optimizedEyeWidth, fv.optimizedEyeHeight, encodingGamma);
             renderer->ffr = std::make_unique<FFR>(renderer->srgbCorrectionPass->GetOutputTexture());
             renderer->ffr->Initialize(fv);
             renderer->streamRenderTexture = renderer->ffr->GetOutputTexture()->GetGLTexture();
         } else {
-            renderer->srgbCorrectionPass->Initialize(width, height, !enableSrgbCorrection);
+            renderer->srgbCorrectionPass->Initialize(width, height, encodingGamma);
             renderer->streamRenderTexture =
                 renderer->srgbCorrectionPass->GetOutputTexture()->GetGLTexture();
         }
@@ -811,7 +811,7 @@ void prepareLobbyRoom(int viewWidth,
                        g_ctx.lobbySwapchainTextures,
                        {false},
                        true,
-                       false);
+                       1.0f);
 }
 
 // on pause
@@ -857,7 +857,7 @@ void streamStartNative(FfiStreamConfig config) {
                         config.foveationEdgeRatioX,
                         config.foveationEdgeRatioY},
                        false,
-                       config.enableSrgbCorrection);
+                       config.encodingGamma);
 }
 
 void updateLobbyHudTexture(const unsigned char *data) {
